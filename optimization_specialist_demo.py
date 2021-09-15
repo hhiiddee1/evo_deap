@@ -18,7 +18,246 @@ from math import fabs,sqrt
 import glob, os
 
 
+# choose this for not using visuals and thus making experiments ###############################################################################
+# EvoMan FrameWork - V1.0 2016  			                                  #
+# DEMO : Neuroevolution - Genetic Algorithm  neural network.                  #
+# Author: Karine Miras        			                                      #
+# karine.smiras@gmail.com     				                                  #
+###############################################################################
+
+# imports framework
+import sys
+sys.path.insert(0, 'evoman')
+from environment import Environment
+from demo_controller import player_controller
+from deap import base, creator
+
+# imports other libs
+import time
+import numpy as np
+from math import fabs,sqrt
+import glob, os
+import random
+
+
 # choose this for not using visuals and thus making experiments faster
+headless = True
+if headless:
+    os.environ["SDL_VIDEODRIVER"] = "dummy"
+
+
+experiment_name = 'individual_demo'
+if not os.path.exists(experiment_name):
+    os.makedirs(experiment_name)
+
+n_hidden_neurons = 10
+
+# initializes simulation in individual evolution mode, for single static enemy.
+env = Environment(experiment_name=experiment_name,
+                  enemies=[2],
+                  playermode="ai",
+                  player_controller=player_controller(n_hidden_neurons),
+                  enemymode="static",
+                  level=2,
+                  speed="fastest")
+
+# default environment fitness is assumed for experiment
+
+env.state_to_log() # checks environment state
+
+
+####   Optimization for controller solution (best genotype-weights for phenotype-network): Ganetic Algorihm    ###
+
+ini = time.time()  # sets time marker
+
+
+# genetic algorithm params
+
+run_mode = 'train' # train or test
+
+# number of weights for multilayer with 10 hidden neurons
+n_vars = (env.get_num_sensors()+1)*n_hidden_neurons + (n_hidden_neurons+1)*5
+
+
+dom_u = 1
+dom_l = -1
+npop = 100
+gens = 30
+mutation = 0.2
+last_best = 0
+
+
+# runs simulation
+def simulation(env,x):
+    f,p,e,t = env.play(pcont=x)
+    return f
+
+creator.create("FitnessMax", base.Fitness, weights=(-1.0,))
+creator.create("Individual", list, fitness=creator.FitnessMax)
+
+IND_SIZE = 10
+
+toolbox = base.Toolbox()
+toolbox.register("attribute", random.random)
+toolbox.register("individual", tools.initRepeat, creator.Individual,
+                 toolbox.attribute, n=IND_SIZE)
+toolbox.register("population", tools.initRepeat, list, toolbox.individual)
+
+def evaluate(individual):
+    return sum(individual),
+
+toolbox.register("mate", tools.cxTwoPoint)
+toolbox.register("mutate", tools.mutGaussian, mu=0, sigma=1, indpb=0.1)
+toolbox.register("select", tools.selTournament, tournsize=3)
+toolbox.register("evaluate", evaluate)
+
+
+# limits
+def limits(x):
+
+    if x>dom_u:
+        return dom_u
+    elif x<dom_l:
+        return dom_l
+    else:
+        return x
+
+
+
+# loads file with the best solution for testing
+if run_mode =='test':
+
+    bsol = np.loadtxt(experiment_name+'/best.txt')
+    print( '\n RUNNING SAVED BEST SOLUTION \n')
+    env.update_parameter('speed','normal')
+    evaluate([bsol])
+
+    sys.exit(0)
+
+
+# initializes population loading old solutions or generating new ones
+
+if not os.path.exists(experiment_name+'/evoman_solstate'):
+
+    print( '\nNEW EVOLUTION\n')
+
+    pop = np.random.uniform(dom_l, dom_u, (npop, n_vars))
+    fit_pop = evaluate(pop)
+    best = np.argmax(fit_pop)
+    mean = np.mean(fit_pop)
+    std = np.std(fit_pop)
+    ini_g = 0
+    solutions = [pop, fit_pop]
+    env.update_solutions(solutions)
+
+else:
+
+    print( '\nCONTINUING EVOLUTION\n')
+
+    env.load_state()
+    pop = env.solutions[0]
+    fit_pop = env.solutions[1]
+
+    best = np.argmax(fit_pop)
+    mean = np.mean(fit_pop)
+    std = np.std(fit_pop)
+
+    # finds last generation number
+    file_aux  = open(experiment_name+'/gen.txt','r')
+    ini_g = int(file_aux.readline())
+    file_aux.close()
+
+
+
+
+# saves results for first pop
+file_aux  = open(experiment_name+'/results.txt','a')
+file_aux.write('\n\ngen best mean std')
+print( '\n GENERATION '+str(ini_g)+' '+str(round(fit_pop[best],6))+' '+str(round(mean,6))+' '+str(round(std,6)))
+file_aux.write('\n'+str(ini_g)+' '+str(round(fit_pop[best],6))+' '+str(round(mean,6))+' '+str(round(std,6))   )
+file_aux.close()
+
+
+# evolution
+
+last_sol = fit_pop[best]
+notimproved = 0
+
+
+pop = toolbox.population(n=50)
+CXPB, MUTPB, NGEN = 0.5, 0.2, 40
+
+# Evaluate the entire population
+fitnesses = map(toolbox.evaluate, pop)
+for ind, fit in zip(pop, fitnesses):
+    ind.fitness.values = fit
+
+for g in range(NGEN):
+    # Select the next generation individuals
+    offspring = toolbox.select(pop, len(pop))
+    # Clone the selected individuals
+    offspring = map(toolbox.clone, offspring)
+
+    # Apply crossover and mutation on the offspring
+    for child1, child2 in zip(offspring[::2], offspring[1::2]):
+        if random.random() < CXPB:
+            toolbox.mate(child1, child2)
+            del child1.fitness.values
+            del child2.fitness.values
+
+    for mutant in offspring:
+        if random.random() < MUTPB:
+            toolbox.mutate(mutant)
+            del mutant.fitness.values
+
+    # Evaluate the individuals with an invalid fitness
+    invalid_ind = [ind for ind in offspring if not ind.fitness.valid]
+    fitnesses = map(toolbox.evaluate, invalid_ind)
+    for ind, fit in zip(invalid_ind, fitnesses):
+        ind.fitness.values = fit
+        print(ind.fitness.values)
+
+    # The population is entirely replaced by the offspring
+    pop[:] = offspring
+
+
+    # best = np.argmax(fit_pop)
+    # std  =  np.std(fit_pop)
+    # mean = np.mean(fit_pop)
+
+
+    # # saves results
+    # file_aux  = open(experiment_name+'/results.txt','a')
+    # print( '\n GENERATION '+str(i)+' '+str(round(fit_pop[best],6))+' '+str(round(mean,6))+' '+str(round(std,6)))
+    # file_aux.write('\n'+str(i)+' '+str(round(fit_pop[best],6))+' '+str(round(mean,6))+' '+str(round(std,6))   )
+    # file_aux.close()
+
+    # # saves generation number
+    # file_aux  = open(experiment_name+'/gen.txt','w')
+    # file_aux.write(str(i))
+    # file_aux.close()
+
+    # # saves file with the best solution
+    # np.savetxt(experiment_name+'/best.txt',pop[best])
+
+    # # saves simulation state
+    # solutions = [pop, fit_pop]
+    # env.update_solutions(solutions)
+    # env.save_state()
+
+    
+
+
+fim = time.time() # prints total execution time for experiment
+print( '\nExecution time: '+str(round((fim-ini)/60))+' minutes \n')
+
+
+file = open(experiment_name+'/neuroended', 'w')  # saves control (simulation has ended) file for bash loop file
+file.close()
+
+
+env.state_to_log() # checks environment state
+
 headless = True
 if headless:
     os.environ["SDL_VIDEODRIVER"] = "dummy"
