@@ -235,7 +235,7 @@ def main_mu_comma_lambda(MU, LAMBDA, CXPB, MUTPB, NGEN):
 
 
 def experiment(function, runs):
-    MU, LAMBDA = 20, 20rsu
+    MU, LAMBDA = 20, 20
     CXPB, MUTPB, NGEN = 0.8, 0.2, 10
     results = []
     best = []
